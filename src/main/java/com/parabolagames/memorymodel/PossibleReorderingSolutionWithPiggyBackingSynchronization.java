@@ -1,4 +1,4 @@
-package com.parabolagame.memorymodel;
+package com.parabolagames.memorymodel;
 
 
 // modified from Java Concurrency In Practice "Great Book!!!!"
@@ -15,7 +15,7 @@ public class PossibleReorderingSolutionWithPiggyBackingSynchronization {
               () -> {
                 a = 1;
                 System.out.println(
-                    "thread one"); // <-- println deep inside synchronize on System.out object
+                    "thread one"); // <-- println deep inside synchronizes on System.out object
                 // since two thread synchronizes on the same object, now happens-before relation
                 // holds!
                 x = b;
@@ -25,7 +25,7 @@ public class PossibleReorderingSolutionWithPiggyBackingSynchronization {
               () -> {
                 b = 1;
                 System.out.println(
-                    "thread other"); // <-- println deep inside synchronize on System.out object
+                    "thread other"); // <-- println deep inside synchronizes on System.out object
                 // since two thread synchronizes on the same object, now happens-before relation
                 // holds!
                 y = a;

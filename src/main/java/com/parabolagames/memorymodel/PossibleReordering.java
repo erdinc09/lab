@@ -1,4 +1,4 @@
-package com.parabolagame.memorymodel;
+package com.parabolagames.memorymodel;
 
 
 

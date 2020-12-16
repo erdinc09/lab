@@ -1,4 +1,4 @@
-package com.parabolagame.generics;
+package com.parabolagames.generics;
 
 import java.util.Iterator;
 import java.util.Set;

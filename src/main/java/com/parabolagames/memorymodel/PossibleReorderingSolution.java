@@ -1,4 +1,4 @@
-package com.parabolagame.memorymodel;
+package com.parabolagames.memorymodel;
 
 
 //modified from Java Concurrency In Practice "Great Book!!!!"
