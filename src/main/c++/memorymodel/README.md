@@ -22,6 +22,59 @@
   * [Slides from some recent talks, bottom of the page](https://hboehm.info/)
   * [HansWeakAtomics.pdf](./HansWeakAtomics.pdf) By Hans Boehm
   
+## Compiler Reordering:
+
+```cpp
+int A, B;
+
+void foo()
+{
+    A = B + 1;
+    B = 0;
+}
+```
+
+```asm
+//x86-64 gcc 10.2 -std=gnu++11 -Wall -Wextra  -O3
+foo():
+        mov     eax, DWORD PTR B[rip]
+        mov     DWORD PTR B[rip], 0
+        add     eax, 1
+        mov     DWORD PTR A[rip], eax
+        ret
+B:
+        .zero   4
+A:
+        .zero   4
+```
+
+Now include compiler barier:
+
+```cpp
+int A, B;
+
+void foo()
+{
+    A = B + 1;
+    asm volatile("" ::: "memory");
+    B = 0;
+}
+```
+
+```asm
+//x86-64 gcc 10.2 -std=gnu++11 -Wall -Wextra  -O3
+foo():
+        mov     eax, DWORD PTR B[rip]
+        add     eax, 1
+        mov     DWORD PTR A[rip], eax
+        mov     DWORD PTR B[rip], 0
+        ret
+B:
+        .zero   4
+A:
+        .zero   4
+```
+
 ## Miscellany
 
 * [Thread coordination using Boost.Atomic](https://www.boost.org/doc/libs/1_75_0/doc/html/atomic/thread_coordination.html)
