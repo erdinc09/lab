@@ -25,7 +25,6 @@
 ## Miscellany
 
 * [Thread coordination using Boost.Atomic](https://www.boost.org/doc/libs/1_75_0/doc/html/atomic/thread_coordination.html)
-
 * [How can memory_order_relaxed work for incrementing atomic reference counts in smart pointers?](https://stackoverflow.com/questions/27631173/how-can-memory-order-relaxed-work-for-incrementing-atomic-reference-counts-in-sm)
 * [boost atomic usage examples](https://www.boost.org/doc/libs/1_57_0/doc/html/atomic/usage_examples.html#boost_atomic.usage_examples.example_reference_counters)
 
@@ -201,12 +200,73 @@ class AtomicRefCount {
 
 
 
-  * [ThreadSanitizerCppManual](https://github.com/google/sanitizers/wiki/ThreadSanitizerCppManual)
-  * [You Can Do Any Kind of Atomic Read-Modify-Write Operation](https://preshing.com/20150402/you-can-do-any-kind-of-atomic-read-modify-write-operation/)
-  * [Atomic vs. Non-Atomic Operations](https://preshing.com/20130618/atomic-vs-non-atomic-operations/)
-  * [An Introduction to Lock-Free Programming](https://preshing.com/20120612/an-introduction-to-lock-free-programming/)
-  * [Independent Read-Modify-Write Ordering](https://stackoverflow.com/questions/60382799/independent-read-modify-write-ordering)
-  * [Atomic operation propagation/visibility (atomic load vs atomic RMW load)](https://stackoverflow.com/questions/55079321/atomic-operation-propagation-visibility-atomic-load-vs-atomic-rmw-load)
-  * [Synchronization and Ordering Constraints](http://modernescpp.com/index.php/synchronization-and-ordering-constraints)
-  * [Using an atomic read-modify-write operation in a release sequence](https://stackoverflow.com/questions/45694459/using-an-atomic-read-modify-write-operation-in-a-release-sequence)
-  * [compare_exchange](https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange)
+* [ThreadSanitizerCppManual](https://github.com/google/sanitizers/wiki/ThreadSanitizerCppManual)
+* [You Can Do Any Kind of Atomic Read-Modify-Write Operation](https://preshing.com/20150402/you-can-do-any-kind-of-atomic-read-modify-write-operation/)
+* [Atomic vs. Non-Atomic Operations](https://preshing.com/20130618/atomic-vs-non-atomic-operations/)
+* [An Introduction to Lock-Free Programming](https://preshing.com/20120612/an-introduction-to-lock-free-programming/)
+* [Independent Read-Modify-Write Ordering](https://stackoverflow.com/questions/60382799/independent-read-modify-write-ordering)
+* [Atomic operation propagation/visibility (atomic load vs atomic RMW load)](https://stackoverflow.com/questions/55079321/atomic-operation-propagation-visibility-atomic-load-vs-atomic-rmw-load)
+* [Synchronization and Ordering Constraints](http://modernescpp.com/index.php/synchronization-and-ordering-constraints)
+* [Using an atomic read-modify-write operation in a release sequence](https://stackoverflow.com/questions/45694459/using-an-atomic-read-modify-write-operation-in-a-release-sequence)
+* [compare_exchange](https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange)
+* [Lock-free programming: how fresh is atomic value?](https://stackoverflow.com/questions/40819270/lock-free-programming-how-fresh-is-atomic-value)
+* [Can num++ be atomic for 'int num'?](https://stackoverflow.com/questions/39393850/can-num-be-atomic-for-int-num/39396999#39396999)
+ 
+  __FOR X86:__
+> So lock add dword [num], 1 is atomic. A CPU core running that instruction would keep the cache line pinned in Modified state in its private L1 cache from when the load reads data from cache until the store commits its result back into cache. This prevents any other cache in the system from having a copy of the cache line at any point from load to store, according to the rules of the MESI cache coherency protocol (or the MOESI/MESIF versions of it used by multi-core AMD/Intel CPUs, respectively). Thus, operations by other cores appear to happen either before or after, not during.
+
+> Without the lock prefix, another core could take ownership of the cache line and modify it after our load but before our store, so that other store would become globally visible in between our load and store. Several other answers get this wrong, and claim that without lock you'd get conflicting copies of the same cache line. This can never happen in a system with coherent caches.
+
+> Note that the lock prefix also turns an instruction into a full memory barrier (like MFENCE), stopping all run-time reordering and thus giving sequential consistency. (See Jeff Preshing's excellent blog post. His other posts are all excellent, too, and clearly explain a lot of good stuff about lock-free programming, from x86 and other hardware details to C++ rules.)
+
+> On a uniprocessor machine, or in a single-threaded process, a single RMW instruction actually is atomic without a lock prefix. The only way for other code to access the shared variable is for the CPU to do a context switch, which can't happen in the middle of an instruction. So a plain dec dword [num] can synchronize between a single-threaded program and its signal handlers, or in a multi-threaded program running on a single-core machine. See the second half of my answer on another question, and the comments under it, where I explain this in more detail.
+
+> As I mentioned, the x86 lock prefix is a full memory barrier, so using num.fetch_add(1, std::memory_order_relaxed); generates the same code on x86 as num++ (the default is sequential consistency), but it can be much more efficient on other architectures (like ARM). Even on x86, relaxed allows more compile-time reordering.
+
+See the source + assembly language code formatted nicely on the Godbolt compiler explorer. You can select other target architectures, including ARM, MIPS, and PowerPC, to see what kind of assembly language code you get from atomics for those targets.
+
+```cpp
+#include <atomic>
+std::atomic<int> num;
+
+void inc_relaxed() {
+  num.fetch_add(1, std::memory_order_relaxed);
+}
+
+int load_num() { return num; }            // Even seq_cst loads are free on x86
+void store_num(int val){ num = val; }
+void store_num_release(int val){
+  num.store(val, std::memory_order_release);
+}
+// Can the compiler collapse multiple atomic operations into one? No, it can't.
+```
+
+```asm
+# g++ 6.2 -O3, targeting x86-64 System V calling convention. (First argument in edi/rdi)
+inc_relaxed():
+    lock add        DWORD PTR num[rip], 1      #### Even relaxed RMWs need a lock. There's no way to request just a single-instruction RMW with no lock, for synchronizing between a program and signal handler for example. :/ There is atomic_signal_fence for ordering, but nothing for RMW.
+    ret
+inc_seq_cst():
+    lock add        DWORD PTR num[rip], 1
+    ret
+load_num():
+    mov     eax, DWORD PTR num[rip]
+    ret
+store_num(int):
+    mov     DWORD PTR num[rip], edi
+    mfence                          ##### seq_cst stores need an mfence
+    ret
+store_num_release(int):
+    mov     DWORD PTR num[rip], edi
+    ret                             ##### Release and weaker doesn't.
+store_num_relaxed(int):
+    mov     DWORD PTR num[rip], edi
+    ret
+```
+
+* [Memory Barriers Are Like Source Control Operations](https://preshing.com/20120710/memory-barriers-are-like-source-control-operations/)
+* [An Introduction to Lock-Free Programming](https://preshing.com/20120612/an-introduction-to-lock-free-programming/)
+* [What Every C Programmer Should Know About Undefined Behavior #1/3](http://blog.llvm.org/2011/05/what-every-c-programmer-should-know.html)
+* [Memory Reordering Caught in the Act](https://preshing.com/20120515/memory-reordering-caught-in-the-act/)
+
+
