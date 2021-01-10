@@ -54,6 +54,13 @@ private:
 };
 ```
 
+* [explanation of above](https://stackoverflow.com/questions/48124031/stdmemory-order-relaxed-atomicity-with-respect-to-the-same-atomic-variable)
+ * single modification order:
+ > The atomic ref_count has a single modification order and therefore all atomic modifications occur in some order.
+* [std::shared_ptr<T>::use_count relaxed ordering](https://en.cppreference.com/w/cpp/memory/shared_ptr/use_count)* Then
+ * relaxed loads
+ > In multi threaded environment, the value returned by use_count is approximate (typical implementations use a memory_order_relaxed load)
+
 __Discussion:__
 The mutex makes sure that only one instance of the object is ever created. The instance method must make sure that any dereference of the object strictly "happens after" creating the instance in another thread. The use of memory_order_release after creating and initializing the object and memory_order_consume before dereferencing the object provides this guarantee.
 
@@ -191,6 +198,8 @@ class AtomicRefCount {
 > 2 and 3 are synchronized implicitly, as they happen on the same thread. 1. and 2. are synchronized since they are both atomic read-modify-write operations on the same value. If these two could race the whole refcounting would be broken in the first place. So what is left is synchronizing 1. and 3..
 > This is exactly what the fence does. The write from 1. is a release operation that is, as we just discussed, synchronized with 2., a read on the same value. 3., an acquire fence on the same thread as 2., now synchronizes with the write from 1. as guaranteed by the spec. This happens without requiring an addition acquire write on the object (as was suggested by @KerrekSB in the comments), which would also work, but might be potentially less efficient due to the additional write.
 > Bottom line: Don't play around with memory orderings. Even experts get them wrong and their impact on performance is often negligible. So unless you have proven in a profiling run that they kill your performance and you absolutely positively have to optimize this, just pretend they don't exist and stick with the default memory_order_seq_cst.
+
+
 
   * [ThreadSanitizerCppManual](https://github.com/google/sanitizers/wiki/ThreadSanitizerCppManual)
   * [You Can Do Any Kind of Atomic Read-Modify-Write Operation](https://preshing.com/20150402/you-can-do-any-kind-of-atomic-read-modify-write-operation/)
