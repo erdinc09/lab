@@ -80,6 +80,16 @@ A:
 * [Thread coordination using Boost.Atomic](https://www.boost.org/doc/libs/1_75_0/doc/html/atomic/thread_coordination.html)
 * [How can memory_order_relaxed work for incrementing atomic reference counts in smart pointers?](https://stackoverflow.com/questions/27631173/how-can-memory-order-relaxed-work-for-incrementing-atomic-reference-counts-in-sm)
 * [boost atomic usage examples](https://www.boost.org/doc/libs/1_57_0/doc/html/atomic/usage_examples.html#boost_atomic.usage_examples.example_reference_counters)
+* [What is guaranteed with C++ std::atomic at the programmer level?](https://stackoverflow.com/a/60001209)
+* [memory_order_relaxed and Atomic RMW operations](https://stackoverflow.com/questions/47142538/memory-order-relaxed-and-atomic-rmw-operations)  
+* [Memory Models for C/C++ Programmers](https://arxiv.org/pdf/1803.04432.pdf)
+* [Implementing a mutex with test-and-set atomic operation: will it work for more than 2 threads?](https://stackoverflow.com/questions/56725078/implementing-a-mutex-with-test-and-set-atomic-operation-will-it-work-for-more-t)
+* [What is guaranteed with C++ std::atomic at the programmer level?](https://stackoverflow.com/questions/59999996/what-is-guaranteed-with-c-stdatomic-at-the-programmer-level) 
+* [Test-and-set](https://en.wikipedia.org/wiki/Test-and-set)
+* [modification-order](https://en.cppreference.com/w/cpp/atomic/memory_order#Modification_order)
+* [You Can Do Any Kind of Atomic Read-Modify-Write Operation](https://preshing.com/20150402/you-can-do-any-kind-of-atomic-read-modify-write-operation/)
+* [Atomic vs. Non-Atomic Operations](https://preshing.com/20130618/atomic-vs-non-atomic-operations/)
+* [memory_order_relaxed and Atomic RMW operations](https://stackoverflow.com/questions/47142538/memory-order-relaxed-and-atomic-rmw-operations)
 
 ```cpp
 #include <boost/intrusive_ptr.hpp>
@@ -323,3 +333,138 @@ store_num_relaxed(int):
 * [Memory Reordering Caught in the Act](https://preshing.com/20120515/memory-reordering-caught-in-the-act/)
 
 
+# X86 SharedPtr Impl
+
+```cpp
+#include <atomic>
+
+class X {
+public:
+  X() : refcount_(0) {}
+ friend void intrusive_ptr_add_ref(const X * x);
+ friend void intrusive_ptr_release(const X * x);
+private:
+  mutable std::atomic<int> refcount_;
+};
+
+void intrusive_ptr_add_ref(const X * x)
+  {
+    x->refcount_.fetch_add(1, std::memory_order_relaxed);
+  }
+void intrusive_ptr_release(const X * x)
+  {
+    if (x->refcount_.fetch_sub(1, std::memory_order_release) == 1) { 
+      std::atomic_thread_fence(std::memory_order_acquire);
+      delete x;
+    }
+  }
+```
+gcc10.2 -std=gnu++11 -Wall -Wextra  -O3
+
+Note that, in O3 optimization, compiler knows that "lock sub        DWORD PTR [rdi], 1" already has "mfence" effeect, therefore omit the mfence.
+```asm
+intrusive_ptr_add_ref(X const*):
+        lock add        DWORD PTR [rdi], 1
+        ret
+intrusive_ptr_release(X const*):
+        lock sub        DWORD PTR [rdi], 1
+        je      .L10
+.L3:
+        ret
+.L10:
+        test    rdi, rdi
+        je      .L3
+        jmp     operator delete(void*)
+```
+
+gcc10.2 -std=gnu++11 -Wall -Wextra  -O0
+
+Notice the "mfence"!
+```asm
+intrusive_ptr_add_ref(X const*):
+        push    rbp
+        mov     rbp, rsp
+        mov     QWORD PTR [rbp-24], rdi
+        mov     rax, QWORD PTR [rbp-24]
+        mov     QWORD PTR [rbp-8], rax
+        mov     DWORD PTR [rbp-12], 1
+        mov     DWORD PTR [rbp-16], 0
+        mov     edx, DWORD PTR [rbp-12]
+        mov     rax, QWORD PTR [rbp-8]
+        lock xadd       DWORD PTR [rax], edx
+        nop
+        pop     rbp
+        ret
+intrusive_ptr_release(X const*):
+        push    rbp
+        mov     rbp, rsp
+        sub     rsp, 48
+        mov     QWORD PTR [rbp-40], rdi
+        mov     rax, QWORD PTR [rbp-40]
+        mov     QWORD PTR [rbp-8], rax
+        mov     DWORD PTR [rbp-12], 1
+        mov     DWORD PTR [rbp-16], 3
+        mov     edx, DWORD PTR [rbp-12]
+        mov     rax, QWORD PTR [rbp-8]
+        neg     edx
+        lock xadd       DWORD PTR [rax], edx
+        mov     eax, edx
+        cmp     eax, 1
+        sete    al
+        test    al, al
+        je      .L6
+        mov     DWORD PTR [rbp-20], 2
+        mfence
+        nop
+        mov     rax, QWORD PTR [rbp-40]
+        test    rax, rax
+        je      .L6
+        mov     rdi, rax
+        call    operator delete(void*)
+.L6:
+        nop
+        leave
+        ret
+```
+Now, in cpp remove the fence, and add acquire to previously release atomic fetch and add:
+
+```cpp
+#include <atomic>
+
+class X {
+public:
+  X() : refcount_(0) {}
+ friend void intrusive_ptr_add_ref(const X * x);
+ friend void intrusive_ptr_release(const X * x);
+private:
+  mutable std::atomic<int> refcount_;
+};
+
+void intrusive_ptr_add_ref(const X * x)
+  {
+    x->refcount_.fetch_add(1, std::memory_order_relaxed);
+  }
+void intrusive_ptr_release(const X * x)
+  {
+    if (x->refcount_.fetch_sub(1, std::memory_order_acq_rel) == 1) { 
+      delete x;
+    }
+  }
+```
+gcc10.2 -std=gnu++11 -Wall -Wextra  -O3
+```cpp
+intrusive_ptr_add_ref(X const*):
+        lock add        DWORD PTR [rdi], 1
+        ret
+intrusive_ptr_release(X const*):
+        mov     eax, -1
+        lock xadd       DWORD PTR [rdi], eax
+        test    rdi, rdi
+        je      .L3
+        cmp     eax, 1
+        je      .L11
+.L3:
+        ret
+.L11:
+        jmp     operator delete(void*)
+```
