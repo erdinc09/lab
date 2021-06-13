@@ -48,7 +48,7 @@ public class GenericsExamples {
     // basket.add(new Apple()); //Compile time error
     // basket.add(new Fruit()); //Compile time error
 
-    // List of apples
+    // List of apples¬
     List<Apple> apples2 = new ArrayList<>();
     apples2.add(new Apple());
 
