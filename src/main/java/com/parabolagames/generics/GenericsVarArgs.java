@@ -24,10 +24,90 @@ import java.util.concurrent.ThreadLocalRandom;
 public class GenericsVarArgs {
 
   public static void main(String[] args) {
-    String[] attributes = pickTwo("Good", "Fast", "Cheap");
+
+
+
+
     // class [Ljava.lang.Object; cannot be cast to class [Ljava.lang.String; ([Ljava.lang.Object;and
     // [Ljava.lang.String; are in module java.base of loader 'bootstrap')
     //	at com.parabolagames.generics.GenericsVarArgs.main(GenericsVarArgs.java:8)
+
+
+    //belows are compiling since the new arrays are created calling side, where the compiler now the real type.
+    String[] strings1 = toArray("Good", "Fast", "Cheap");
+    String[] strings2 = GenericVarArgsHelper.toArray("Good", "Fast", "Cheap");//proof for when the varargs in another file but anyway, array creation is here
+    Integer[] integers = GenericVarArgsHelper.toArray(1,2, 3);
+    System.out.println("strings1: " +  Arrays.toString(strings1));
+    System.out.println("strings2: " +  Arrays.toString(strings2));
+    System.out.println("integers: " +  Arrays.toString(integers));
+
+
+    //below however throw class cast exception.
+    // Reason is that, since toArray is called within method "pickTwo", new array created for varargs is type of Object[]
+    //please see the of disassemble code of method "static <T> T[] pickTwo(T, T, T)" (byte code)
+    // at line 33 --> "33: anewarray     #20                 // class java/lang/Object"
+
+    //Always keep in mind that, in java there is only one compilation unit for generics, unlike C++!.
+    String[] attributes = pickTwo("Good", "Fast", "Cheap");
+    /*
+
+
+
+     static <T> T[] pickTwo(T, T, T);
+    Code:
+       0: invokestatic  #18                 // Method java/util/concurrent/ThreadLocalRandom.current:()Ljava/util/concurrent/ThreadLocalRandom;
+       3: iconst_3
+       4: invokevirtual #19                 // Method java/util/concurrent/ThreadLocalRandom.nextInt:(I)I
+       7: tableswitch   { // 0 to 2
+                     0: 32
+                     1: 48
+                     2: 64
+               default: 80
+          }
+      32: iconst_2
+      33: anewarray     #20                 // class java/lang/Object
+      36: dup
+      37: iconst_0
+      38: aload_0
+      39: aastore
+      40: dup
+      41: iconst_1
+      42: aload_1
+      43: aastore
+      44: invokestatic  #6                  // Method toArray:([Ljava/lang/Object;)[Ljava/lang/Object;
+      47: areturn
+      48: iconst_2
+      49: anewarray     #20                 // class java/lang/Object
+      52: dup
+      53: iconst_0
+      54: aload_0
+      55: aastore
+      56: dup
+      57: iconst_1
+      58: aload_2
+      59: aastore
+      60: invokestatic  #6                  // Method toArray:([Ljava/lang/Object;)[Ljava/lang/Object;
+      63: areturn
+      64: iconst_2
+      65: anewarray     #20                 // class java/lang/Object
+      68: dup
+      69: iconst_0
+      70: aload_1
+      71: aastore
+      72: dup
+      73: iconst_1
+      74: aload_2
+      75: aastore
+      76: invokestatic  #6                  // Method toArray:([Ljava/lang/Object;)[Ljava/lang/Object;
+      79: areturn
+      80: new           #21                 // class java/lang/AssertionError
+      83: dup
+      84: invokespecial #22                 // Method java/lang/AssertionError."<init>":()V
+      87: athrow
+
+
+
+     */
   }
 
   static <T> T[] toArray(T... args) {
